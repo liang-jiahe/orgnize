@@ -89,7 +89,7 @@ table input:focus { border-color:#1b6b4f; }
 .accessory-panel { position:relative; overflow:hidden; }
 .accessory-panel::after { content:'🐾'; position:absolute; right:20px; top:12px; font-size:52px; opacity:.08; transform:rotate(15deg); }
 .accessory-intro { margin:-4px 0 18px; color:#6f7973; font-size:13px; line-height:1.7; }
-.accessory-picker { margin:0 0 18px; padding:12px 14px 14px; border:1px dashed #8ba198; border-radius:12px 20px 13px 18px; background:#f7fcf9; display:grid; grid-template-columns:repeat(6,minmax(110px,1fr)); gap:9px; }
+.accessory-picker { margin:0 0 18px; padding:12px 14px 14px; border:1px dashed #8ba198; border-radius:12px 20px 13px 18px; background:#f7fcf9; display:grid; grid-template-columns:repeat(7,minmax(105px,1fr)); gap:9px; }
 .accessory-picker legend { padding:0 7px; color:#52615a; font-size:12px; font-weight:700; }
 .accessory-choice { min-width:0; padding:9px 10px; border:1px solid #b8c8c0; border-radius:10px; background:#fff; display:grid; grid-template-columns:1fr auto; gap:3px 7px; align-items:center; }
 .accessory-choice.selected { border:2px solid #1b6b4f; padding:8px 9px; background:#e8fff4; box-shadow:2px 2px 0 rgba(27,107,79,.12); }

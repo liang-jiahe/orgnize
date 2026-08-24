@@ -291,7 +291,7 @@ export default function App() {
     setDistributionCounts((current) => {
       let changed = false
       const next = { ...current }
-      ACCESSORIES.forEach((accessory) => {
+      QUEUE_ACCESSORIES.forEach((accessory) => {
         const available = Math.min(2, queues[accessory.name].length)
         if (next[accessory.name] > available) { next[accessory.name] = available; changed = true }
       })
@@ -338,13 +338,13 @@ export default function App() {
     setDistributionCounts((current) => ({ ...current, [accessory]: Math.max(0, Math.min(available, count)) }))
   }
   const sweepQueuesNow = () => {
-    const actualCounts = ACCESSORIES.reduce((next, accessory) => {
+    const actualCounts = QUEUE_ACCESSORIES.reduce((next, accessory) => {
       next[accessory.name] = Math.min(distributionCounts[accessory.name], queues[accessory.name].length)
       return next
     }, emptyDistributionCounts())
     const total = Object.values(actualCounts).reduce((sum, count) => sum + count, 0)
     if (!total) { setNotice('请先勾选至少一个有队首的部位，并设置发放数量。'); return }
-    const distributed = ACCESSORIES.flatMap((accessory) => queues[accessory.name].slice(0, actualCounts[accessory.name]).map((entry) => `${accessory.name}（${entry.name}）`))
+    const distributed = QUEUE_ACCESSORIES.flatMap((accessory) => queues[accessory.name].slice(0, actualCounts[accessory.name]).map((entry) => `${accessory.name}（${entry.name}）`))
     setQueues((current) => sweepAccessoryQueues(current, actualCounts))
     setDistributionCounts(emptyDistributionCounts())
     setLastSweep(sundayDateKey())
@@ -484,10 +484,10 @@ export default function App() {
           <div><span className="eyebrow">ACCESSORY QUEUE</span><h3>饰品排队</h3></div>
           <button className="btn ghost" onClick={sweepQueuesNow} disabled={!Object.values(distributionCounts).some(Boolean)}>↻ 发放首位{Object.values(distributionCounts).some(Boolean) ? `（${Object.values(distributionCounts).reduce((sum, count) => sum + count, 0)}）` : ''}</button>
         </div>
-        <p className="accessory-intro">选择需要的饰品并留下姓名。发放时可多选需要的部位，每个部位可发放 1 或 2 个队首名额；接受任意没人要饰品的成员可加入“剩余饰品”排队。</p>
+        <p className="accessory-intro">选择需要的饰品并留下姓名。发放时可多选需要的部位（包含剩余饰品），每个部位可发放 1 或 2 个队首名额。</p>
         <fieldset className="accessory-picker">
           <legend>勾选部位并设置发放数量（0–2）</legend>
-          {ACCESSORIES.map((accessory) => {
+          {QUEUE_ACCESSORIES.map((accessory) => {
             const first = queues[accessory.name][0]
             const count = distributionCounts[accessory.name]
             const available = Math.min(2, queues[accessory.name].length)
@@ -504,7 +504,7 @@ export default function App() {
           })}
         </fieldset>
         <div className="accessory-grid">{QUEUE_ACCESSORIES.map((accessory) => <div className={`accessory-card ${accessory.color}`} key={accessory.name}><div className="accessory-title"><span className="accessory-icon">{accessory.icon}</span><div><strong>{accessory.name}</strong><small>{accessory.name === '剩余饰品' ? '任意无人认领的部位' : `${queues[accessory.name].length} 人排队`}</small>{accessory.name === '剩余饰品' && <small>{queues[accessory.name].length} 人排队</small>}</div></div><div className="queue-add"><input value={queueInputs[accessory.name]} onChange={(event) => setQueueInputs((current) => ({ ...current, [accessory.name]: event.target.value }))} onKeyDown={(event) => { if (event.key === 'Enter') addQueueEntry(accessory.name) }} placeholder="输入姓名" /><button className="cat-add" onClick={() => addQueueEntry(accessory.name)}>＋</button></div>{queues[accessory.name].length ? <ol className="queue-list">{queues[accessory.name].map((entry, index) => <li key={entry.id}><span className="queue-number">{index + 1}</span><span className="queue-name">{entry.name}</span><button onClick={() => removeQueueEntry(accessory.name, entry.id)}>已分发</button></li>)}</ol> : <div className="queue-empty">暂无排队</div>}</div>)}</div>
-        <p className="queue-note">发放不会自动执行；每个部位只能选择 0、1、2，系统会按数量依次发放队首。“剩余饰品”队列不受该按钮影响，只能单独标记已分发。队列数据会保存在共享数据中。</p>
+        <p className="queue-note">发放不会自动执行；每个部位（包含剩余饰品）只能选择 0、1、2，系统会按数量依次发放队首。队列数据会保存在共享数据中。</p>
       </section>
       <footer className="signature">署名：繁星</footer>
     </main>

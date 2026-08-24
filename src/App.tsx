@@ -16,8 +16,10 @@ type Member = {
 
 type PackageType = 'fire' | 'mid1' | 'mid2'
 type Schedule = Record<string, string | null>
-type AccessoryName = '手镯' | '戒指' | '耳环' | '腰带' | '项链' | '徽章'
+type AccessoryName = '手镯' | '戒指' | '耳环' | '腰带' | '项链' | '徽章' | '剩余饰品'
 type QueueEntry = { id: string; name: string; addedAt: string }
+type DistributionCounts = Record<AccessoryName, number>
+type AccessoryDefinition = { name: AccessoryName; icon: string; color: string }
 
 type Session = {
   id: string
@@ -29,7 +31,7 @@ type Session = {
 
 const PACKAGE_LABELS: Record<PackageType, string> = { fire: '火', mid1: '中一', mid2: '中二' }
 const TYPE_ORDER: PackageType[] = ['fire', 'mid1', 'mid2']
-const ACCESSORIES: { name: AccessoryName; icon: string; color: string }[] = [
+const ACCESSORIES: AccessoryDefinition[] = [
   { name: '手镯', icon: '🪬', color: 'pink' },
   { name: '戒指', icon: '💍', color: 'yellow' },
   { name: '耳环', icon: '✨', color: 'cyan' },
@@ -37,6 +39,7 @@ const ACCESSORIES: { name: AccessoryName; icon: string; color: string }[] = [
   { name: '项链', icon: '📿', color: 'orange' },
   { name: '徽章', icon: '🏵️', color: 'blue' },
 ]
+const QUEUE_ACCESSORIES: AccessoryDefinition[] = [...ACCESSORIES, { name: '剩余饰品', icon: '🎁', color: 'remainder' }]
 const TIERS = [
   { min: 1, max: 5, fire: 2, middle: 3, coins: 62, color: 'pink' },
   { min: 6, max: 10, fire: 2, middle: 2, coins: 60, color: 'orange' },
@@ -58,12 +61,16 @@ const SESSIONS: Session[] = [
 ]
 
 function emptyQueues(): Record<AccessoryName, QueueEntry[]> {
-  return { 手镯: [], 戒指: [], 耳环: [], 腰带: [], 项链: [], 徽章: [] }
+  return { 手镯: [], 戒指: [], 耳环: [], 腰带: [], 项链: [], 徽章: [], 剩余饰品: [] }
 }
 
-function sweepAccessoryQueues(source: Record<AccessoryName, QueueEntry[]>) {
-  return ACCESSORIES.reduce((next, accessory) => {
-    next[accessory.name] = source[accessory.name].slice(1)
+function emptyDistributionCounts(): DistributionCounts {
+  return { 手镯: 0, 戒指: 0, 耳环: 0, 腰带: 0, 项链: 0, 徽章: 0, 剩余饰品: 0 }
+}
+
+function sweepAccessoryQueues(source: Record<AccessoryName, QueueEntry[]>, counts: DistributionCounts) {
+  return QUEUE_ACCESSORIES.reduce((next, accessory) => {
+    next[accessory.name] = source[accessory.name].slice(counts[accessory.name])
     return next
   }, emptyQueues())
 }
@@ -205,7 +212,8 @@ export default function App() {
   const undoStack = useRef<Member[][]>([])
   const redoStack = useRef<Member[][]>([])
   const [queues, setQueues] = useState<Record<AccessoryName, QueueEntry[]>>(() => { try { const saved = localStorage.getItem('fortress-accessory-queues'); return saved ? { ...emptyQueues(), ...JSON.parse(saved) } : emptyQueues() } catch { return emptyQueues() } })
-  const [queueInputs, setQueueInputs] = useState<Record<AccessoryName, string>>(() => ({ 手镯: '', 戒指: '', 耳环: '', 腰带: '', 项链: '', 徽章: '' }))
+  const [queueInputs, setQueueInputs] = useState<Record<AccessoryName, string>>(() => ({ 手镯: '', 戒指: '', 耳环: '', 腰带: '', 项链: '', 徽章: '', 剩余饰品: '' }))
+  const [distributionCounts, setDistributionCounts] = useState<DistributionCounts>(() => emptyDistributionCounts())
   const [lastSweep, setLastSweep] = useState(() => localStorage.getItem('fortress-accessory-last-sweep') || '')
   const [cloudReady, setCloudReady] = useState(false)
   const [cloudStateExists, setCloudStateExists] = useState(false)
@@ -279,7 +287,17 @@ export default function App() {
   const counts = useMemo(() => { const result = new Map<string, { fire: number; middle: number }>(); Object.entries(schedule).forEach(([key, id]) => { if (!id) return; const type = key.split(':')[1] as PackageType; const current = result.get(id) ?? { fire: 0, middle: 0 }; if (type === 'fire') current.fire += 1; else current.middle += 1; result.set(id, current) }); return result }, [schedule])
   useEffect(() => { localStorage.setItem('fortress-members', JSON.stringify(members)) }, [members])
   useEffect(() => { localStorage.setItem('fortress-accessory-queues', JSON.stringify(queues)) }, [queues])
-  useEffect(() => { if (new Date().getDay() === 0 && lastSweep !== sundayDateKey()) { setQueues((current) => sweepAccessoryQueues(current)); setLastSweep(sundayDateKey()); localStorage.setItem('fortress-accessory-last-sweep', sundayDateKey()); setNotice('今天是周日，已为每种饰品发放队首名额。') } }, [lastSweep])
+  useEffect(() => {
+    setDistributionCounts((current) => {
+      let changed = false
+      const next = { ...current }
+      ACCESSORIES.forEach((accessory) => {
+        const available = Math.min(2, queues[accessory.name].length)
+        if (next[accessory.name] > available) { next[accessory.name] = available; changed = true }
+      })
+      return changed ? next : current
+    })
+  }, [queues])
   const commitMembers = (updater: (current: Member[]) => Member[], message?: string) => {
     setMembers((current) => {
       undoStack.current.push(cloneMembers(current))
@@ -315,7 +333,24 @@ export default function App() {
   const reset = () => { commitMembers(() => makeSampleMembers(), '已恢复以前的 30 人成员数据。') }
   const addQueueEntry = (accessory: AccessoryName) => { const name = queueInputs[accessory].trim(); if (!name) { setNotice(`请先填写想要${accessory}的姓名。`); return } if (queues[accessory].some((entry) => entry.name.trim().toLowerCase() === name.toLowerCase())) { setNotice(`${name} 已经在${accessory}队列中。`); return } setQueues((current) => ({ ...current, [accessory]: [...current[accessory], { id: `q-${Date.now()}-${accessory}`, name, addedAt: new Date().toISOString() }] })); setQueueInputs((current) => ({ ...current, [accessory]: '' })); setNotice(`${name} 已加入${accessory}排队。`) }
   const removeQueueEntry = (accessory: AccessoryName, id: string) => { setQueues((current) => ({ ...current, [accessory]: current[accessory].filter((entry) => entry.id !== id) })); setNotice('已标记为分发完成，队列已更新。') }
-  const sweepQueuesNow = () => { const waiting = ACCESSORIES.reduce((total, accessory) => total + (queues[accessory.name][0] ? 1 : 0), 0); setQueues((current) => sweepAccessoryQueues(current)); setLastSweep(sundayDateKey()); localStorage.setItem('fortress-accessory-last-sweep', sundayDateKey()); setNotice(`已手动发放 ${waiting} 个饰品队首名额。`) }
+  const setAccessoryDistributionCount = (accessory: AccessoryName, count: number) => {
+    const available = Math.min(2, queues[accessory].length)
+    setDistributionCounts((current) => ({ ...current, [accessory]: Math.max(0, Math.min(available, count)) }))
+  }
+  const sweepQueuesNow = () => {
+    const actualCounts = ACCESSORIES.reduce((next, accessory) => {
+      next[accessory.name] = Math.min(distributionCounts[accessory.name], queues[accessory.name].length)
+      return next
+    }, emptyDistributionCounts())
+    const total = Object.values(actualCounts).reduce((sum, count) => sum + count, 0)
+    if (!total) { setNotice('请先勾选至少一个有队首的部位，并设置发放数量。'); return }
+    const distributed = ACCESSORIES.flatMap((accessory) => queues[accessory.name].slice(0, actualCounts[accessory.name]).map((entry) => `${accessory.name}（${entry.name}）`))
+    setQueues((current) => sweepAccessoryQueues(current, actualCounts))
+    setDistributionCounts(emptyDistributionCounts())
+    setLastSweep(sundayDateKey())
+    localStorage.setItem('fortress-accessory-last-sweep', sundayDateKey())
+    setNotice(`已将 ${distributed.join('、')} 标记为已分发，共发放 ${total} 个队首名额。`)
+  }
   const handleImport = async (event: React.ChangeEvent<HTMLInputElement>) => { const file = event.target.files?.[0]; if (!file) return; try { const imported = await importWorkbook(file); if (!imported.length) throw new Error('没有识别到成员'); const latest = new Map(members.map((member) => [member.name.trim(), member])); const prepared = imported.map((member) => { const saved = latest.get(member.name.trim()); return saved ? { ...member, id: saved.id, power: Math.max(member.power, saved.power), previousPower: saved.previousPower ?? Math.max(saved.power - saved.weeklyPower, 0), weeklyPower: saved.weeklyPower || 0, order: saved.order } : normalizeMember({ ...member, previousPower: member.power }) }); commitMembers(() => prepared, `已导入 ${prepared.length} 名成员；同名成员已保留最新战力。`) } catch (error) { setNotice(`导入失败：${error instanceof Error ? error.message : '文件格式不正确'}`) } finally { event.target.value = '' } }
   const goTo = (section: string) => { setActiveSection(section); document.getElementById(section)?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }
   return <div className="app-shell">
@@ -444,7 +479,33 @@ export default function App() {
           </div>
         </div>
       </section>      <section id="instructions" className="panel rules-panel"><div><span className="eyebrow">PACKAGE RULES</span><h3>分包规则</h3></div><div className="protocol-copy"><p>每周六晚统计一次战力与考核分，按时参加活动基本不会扣包。</p><ul><li>考核分越高，分包排名越靠前；同分时战力高者优先。</li><li>普通周满分 37 分；争霸周满分 57 分。</li><li>每周固定 8 个时段，共 40 个火包和 80 个中包。</li><li>1–5 名领取 2 火 3 中，26–30 名领取 5 中，其余档位按卡片执行。</li><li>特殊奖励或扣包请在备注里写清楚。</li></ul></div><div className="tier-cards">{TIERS.map((tier) => <div className={`tier-card ${tier.color}`} key={tier.min}><b>{tier.min}-{tier.max}</b><span>{tier.fire} 火 · {tier.middle} 中</span><strong>{tier.coins} 币</strong></div>)}</div><p className="rule-copy">本规则以互相提醒、按时参加、公开透明为原则。</p></section>
-      <section id="accessories" className="panel accessory-panel"><div className="panel-heading"><div><span className="eyebrow">ACCESSORY QUEUE</span><h3>饰品排队</h3></div><button className="btn ghost" onClick={sweepQueuesNow}>↻ 周日发放首位</button></div><p className="accessory-intro">选择需要的饰品并留下姓名。每周日发放每种饰品的第一位，也可以随时手动标记“已分发”。</p><div className="accessory-grid">{ACCESSORIES.map((accessory) => <div className={`accessory-card ${accessory.color}`} key={accessory.name}><div className="accessory-title"><span className="accessory-icon">{accessory.icon}</span><div><strong>{accessory.name}</strong><small>{queues[accessory.name].length} 人排队</small></div></div><div className="queue-add"><input value={queueInputs[accessory.name]} onChange={(event) => setQueueInputs((current) => ({ ...current, [accessory.name]: event.target.value }))} onKeyDown={(event) => { if (event.key === 'Enter') addQueueEntry(accessory.name) }} placeholder="输入姓名" /><button className="cat-add" onClick={() => addQueueEntry(accessory.name)}>＋</button></div>{queues[accessory.name].length ? <ol className="queue-list">{queues[accessory.name].map((entry, index) => <li key={entry.id}><span className="queue-number">{index + 1}</span><span className="queue-name">{entry.name}</span><button onClick={() => removeQueueEntry(accessory.name, entry.id)}>已分发</button></li>)}</ol> : <div className="queue-empty">暂无排队</div>}</div>)}</div><p className="queue-note">自动规则：每周日打开系统时，每种饰品只会自动发放一次队首；队列数据保存在当前浏览器。</p></section>
+      <section id="accessories" className="panel accessory-panel">
+        <div className="panel-heading">
+          <div><span className="eyebrow">ACCESSORY QUEUE</span><h3>饰品排队</h3></div>
+          <button className="btn ghost" onClick={sweepQueuesNow} disabled={!Object.values(distributionCounts).some(Boolean)}>↻ 发放首位{Object.values(distributionCounts).some(Boolean) ? `（${Object.values(distributionCounts).reduce((sum, count) => sum + count, 0)}）` : ''}</button>
+        </div>
+        <p className="accessory-intro">选择需要的饰品并留下姓名。发放时可多选需要的部位，每个部位可发放 1 或 2 个队首名额；接受任意没人要饰品的成员可加入“剩余饰品”排队。</p>
+        <fieldset className="accessory-picker">
+          <legend>勾选部位并设置发放数量（0–2）</legend>
+          {ACCESSORIES.map((accessory) => {
+            const first = queues[accessory.name][0]
+            const count = distributionCounts[accessory.name]
+            const available = Math.min(2, queues[accessory.name].length)
+            const waitingNames = queues[accessory.name].slice(0, 2).map((entry) => entry.name).join('、')
+            return <div className={`accessory-choice ${count ? 'selected' : ''} ${!first ? 'disabled' : ''}`} key={accessory.name}>
+              <label><input type="checkbox" checked={count > 0} disabled={!first} onChange={(event) => setAccessoryDistributionCount(accessory.name, event.target.checked ? 1 : 0)} /><span>{accessory.icon} {accessory.name}</span></label>
+              <small>{first ? `${queues[accessory.name].length > 1 ? '前两位' : '队首'}：${waitingNames}` : '暂无队首'}</small>
+              <div className="quantity-stepper" aria-label={`${accessory.name}发放数量`}>
+                <button type="button" disabled={count === 0} onClick={() => setAccessoryDistributionCount(accessory.name, count - 1)} aria-label={`减少${accessory.name}发放数量`}>−</button>
+                <strong>{count}</strong>
+                <button type="button" disabled={count >= available} onClick={() => setAccessoryDistributionCount(accessory.name, count + 1)} aria-label={`增加${accessory.name}发放数量`}>＋</button>
+              </div>
+            </div>
+          })}
+        </fieldset>
+        <div className="accessory-grid">{QUEUE_ACCESSORIES.map((accessory) => <div className={`accessory-card ${accessory.color}`} key={accessory.name}><div className="accessory-title"><span className="accessory-icon">{accessory.icon}</span><div><strong>{accessory.name}</strong><small>{accessory.name === '剩余饰品' ? '任意无人认领的部位' : `${queues[accessory.name].length} 人排队`}</small>{accessory.name === '剩余饰品' && <small>{queues[accessory.name].length} 人排队</small>}</div></div><div className="queue-add"><input value={queueInputs[accessory.name]} onChange={(event) => setQueueInputs((current) => ({ ...current, [accessory.name]: event.target.value }))} onKeyDown={(event) => { if (event.key === 'Enter') addQueueEntry(accessory.name) }} placeholder="输入姓名" /><button className="cat-add" onClick={() => addQueueEntry(accessory.name)}>＋</button></div>{queues[accessory.name].length ? <ol className="queue-list">{queues[accessory.name].map((entry, index) => <li key={entry.id}><span className="queue-number">{index + 1}</span><span className="queue-name">{entry.name}</span><button onClick={() => removeQueueEntry(accessory.name, entry.id)}>已分发</button></li>)}</ol> : <div className="queue-empty">暂无排队</div>}</div>)}</div>
+        <p className="queue-note">发放不会自动执行；每个部位只能选择 0、1、2，系统会按数量依次发放队首。“剩余饰品”队列不受该按钮影响，只能单独标记已分发。队列数据会保存在共享数据中。</p>
+      </section>
       <footer className="signature">署名：繁星</footer>
     </main>
   </div>

@@ -206,6 +206,56 @@ async function exportWorkbook(members: Member[], schedule: Schedule, ranked: Mem
 const SHARED_STATE_ID = 'main'
 type SharedStateRow = { id: string; members: Member[]; queues: Record<AccessoryName, QueueEntry[]>; last_sweep: string; contest: boolean }
 
+function normalizeFuzzyText(value: string) {
+  return value.trim().toLocaleLowerCase().replace(/\s+/g, '')
+}
+
+function fuzzyNameScore(name: string, query: string) {
+  const text = normalizeFuzzyText(name)
+  const term = normalizeFuzzyText(query)
+  if (!term) return Number.POSITIVE_INFINITY
+  if (text === term) return 0
+  if (text.startsWith(term)) return 1
+  const includedAt = text.indexOf(term)
+  if (includedAt >= 0) return 10 + includedAt
+  let cursor = 0
+  let gaps = 0
+  for (const character of term) {
+    const matchedAt = text.indexOf(character, cursor)
+    if (matchedAt < 0) return Number.POSITIVE_INFINITY
+    gaps += matchedAt - cursor
+    cursor = matchedAt + 1
+  }
+  return 100 + gaps
+}
+
+function fuzzyMemberNames(members: Member[], query: string, queuedEntries: QueueEntry[]) {
+  const queuedNames = new Set(queuedEntries.map((entry) => normalizeFuzzyText(entry.name)))
+  const seen = new Set<string>()
+  return members
+    .map((member, index) => ({ name: member.name.trim(), index, score: fuzzyNameScore(member.name, query) }))
+    .filter(({ name, score }) => {
+      const normalized = normalizeFuzzyText(name)
+      if (!name || !Number.isFinite(score) || seen.has(normalized) || queuedNames.has(normalized)) return false
+      seen.add(normalized)
+      return true
+    })
+    .sort((a, b) => a.score - b.score || a.index - b.index)
+    .slice(0, 6)
+    .map(({ name }) => name)
+}
+
+function QueueNameInput({ accessory, value, members, queuedEntries, open, onOpen, onClose, onChange, onAdd }: { accessory: AccessoryName; value: string; members: Member[]; queuedEntries: QueueEntry[]; open: boolean; onOpen: () => void; onClose: () => void; onChange: (value: string) => void; onAdd: () => void }) {
+  const suggestions = fuzzyMemberNames(members, value, queuedEntries)
+  const listId = `queue-name-suggestions-${QUEUE_ACCESSORIES.findIndex((item) => item.name === accessory)}`
+  return <div className="queue-add-shell" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) onClose() }}>
+    <div className="queue-add"><input role="combobox" aria-autocomplete="list" aria-expanded={open && Boolean(value.trim())} aria-controls={listId} value={value} onFocus={onOpen} onChange={(event) => { onChange(event.target.value); onOpen() }} onKeyDown={(event) => { if (event.key === 'Enter') onAdd() }} placeholder="输入成员姓名" /><button className="cat-add" onClick={onAdd}>＋</button></div>
+    {open && value.trim() && <div className="queue-suggestions" id={listId} role="listbox" aria-label={`${accessory}成员姓名候选`}>
+      {suggestions.length ? suggestions.map((name) => <button type="button" role="option" aria-selected="false" key={name} onClick={() => { onChange(name); onClose() }}>{name}</button>) : <span>未找到匹配成员，可继续手动输入</span>}
+    </div>}
+  </div>
+}
+
 export default function App() {
   const [members, setMembers] = useState<Member[]>(() => { try { const saved = localStorage.getItem('fortress-members'); return saved ? JSON.parse(saved).map((member: Member) => normalizeMember(member)) : [] } catch { return [] } })
   const [contest, setContest] = useState(false); const [notice, setNotice] = useState('已加载示例数据，可直接编辑或导入本周表格。'); const [activeSection, setActiveSection] = useState('matrix'); const fileRef = useRef<HTMLInputElement>(null)
@@ -213,6 +263,7 @@ export default function App() {
   const redoStack = useRef<Member[][]>([])
   const [queues, setQueues] = useState<Record<AccessoryName, QueueEntry[]>>(() => { try { const saved = localStorage.getItem('fortress-accessory-queues'); return saved ? { ...emptyQueues(), ...JSON.parse(saved) } : emptyQueues() } catch { return emptyQueues() } })
   const [queueInputs, setQueueInputs] = useState<Record<AccessoryName, string>>(() => ({ 手镯: '', 戒指: '', 耳环: '', 腰带: '', 项链: '', 徽章: '', 剩余饰品: '' }))
+  const [activeQueueInput, setActiveQueueInput] = useState<AccessoryName | null>(null)
   const [distributionCounts, setDistributionCounts] = useState<DistributionCounts>(() => emptyDistributionCounts())
   const [lastSweep, setLastSweep] = useState(() => localStorage.getItem('fortress-accessory-last-sweep') || '')
   const [cloudReady, setCloudReady] = useState(false)
@@ -504,7 +555,7 @@ export default function App() {
           })}
         </fieldset>
         <div className="accessory-grid">
-          {QUEUE_ACCESSORIES.map((accessory) => <div className={`accessory-card ${accessory.color}`} key={accessory.name}><div className="accessory-title"><span className="accessory-icon">{accessory.icon}</span><div><strong>{accessory.name}</strong><small>{accessory.name === '剩余饰品' ? '任意无人认领的部位' : `${queues[accessory.name].length} 人排队`}</small>{accessory.name === '剩余饰品' && <small>{queues[accessory.name].length} 人排队</small>}</div></div><div className="queue-add"><input value={queueInputs[accessory.name]} onChange={(event) => setQueueInputs((current) => ({ ...current, [accessory.name]: event.target.value }))} onKeyDown={(event) => { if (event.key === 'Enter') addQueueEntry(accessory.name) }} placeholder="输入姓名" /><button className="cat-add" onClick={() => addQueueEntry(accessory.name)}>＋</button></div>{queues[accessory.name].length ? <ol className="queue-list">{queues[accessory.name].map((entry, index) => <li key={entry.id}><span className="queue-number">{index + 1}</span><span className="queue-name">{entry.name}</span><button onClick={() => removeQueueEntry(accessory.name, entry.id)}>已分发</button></li>)}</ol> : <div className="queue-empty">暂无排队</div>}</div>)}
+          {QUEUE_ACCESSORIES.map((accessory) => <div className={`accessory-card ${accessory.color}`} key={accessory.name}><div className="accessory-title"><span className="accessory-icon">{accessory.icon}</span><div><strong>{accessory.name}</strong><small>{accessory.name === '剩余饰品' ? '任意无人认领的部位' : `${queues[accessory.name].length} 人排队`}</small>{accessory.name === '剩余饰品' && <small>{queues[accessory.name].length} 人排队</small>}</div></div><QueueNameInput accessory={accessory.name} value={queueInputs[accessory.name]} members={members} queuedEntries={queues[accessory.name]} open={activeQueueInput === accessory.name} onOpen={() => setActiveQueueInput(accessory.name)} onClose={() => setActiveQueueInput(null)} onChange={(value) => setQueueInputs((current) => ({ ...current, [accessory.name]: value }))} onAdd={() => { addQueueEntry(accessory.name); setActiveQueueInput(null) }} />{queues[accessory.name].length ? <ol className="queue-list">{queues[accessory.name].map((entry, index) => <li key={entry.id}><span className="queue-number">{index + 1}</span><span className="queue-name">{entry.name}</span><button onClick={() => removeQueueEntry(accessory.name, entry.id)}>已分发</button></li>)}</ol> : <div className="queue-empty">暂无排队</div>}</div>)}
           {[1, 2].map((slot) => <div className="accessory-card development-card" key={`development-${slot}`}><div className="development-placeholder"><span>🚧</span><strong>开发中</strong></div></div>)}
         </div>
         <p className="queue-note">发放不会自动执行；每个部位（包含剩余饰品）只能选择 0、1、2，系统会按数量依次发放队首。队列数据会保存在共享数据中。</p>

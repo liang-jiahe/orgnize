@@ -2,7 +2,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { sites } from '@openai/sites-vite-plugin';
 export default defineConfig({
-    base: process.env.GITHUB_ACTIONS ? '/fortress-distribution/' : '/',
+    base: process.env.GITHUB_ACTIONS ? '/orgnize/' : '/',
     plugins: [
         react(),
         sites(),

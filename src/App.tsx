@@ -204,7 +204,12 @@ async function exportWorkbook(members: Member[], schedule: Schedule, ranked: Mem
 }
 
 const SHARED_STATE_ID = 'main'
-type SharedStateRow = { id: string; members: Member[]; queues: Record<AccessoryName, QueueEntry[]>; last_sweep: string; contest: boolean }
+type SharedState = { members: Member[]; queues: Record<AccessoryName, QueueEntry[]>; lastSweep: string; contest: boolean }
+type SharedStateRow = { id: string; members: Member[]; queues: Record<AccessoryName, QueueEntry[]>; last_sweep: string; contest: boolean; updated_at?: string }
+
+function sharedStateFingerprint(state: SharedState) {
+  return JSON.stringify({ members: state.members, queues: state.queues, lastSweep: state.lastSweep, contest: state.contest })
+}
 
 function normalizeFuzzyText(value: string) {
   return value.trim().toLocaleLowerCase().replace(/\s+/g, '')
@@ -267,70 +272,126 @@ export default function App() {
   const [distributionCounts, setDistributionCounts] = useState<DistributionCounts>(() => emptyDistributionCounts())
   const [lastSweep, setLastSweep] = useState(() => localStorage.getItem('fortress-accessory-last-sweep') || '')
   const [cloudReady, setCloudReady] = useState(false)
-  const [cloudStateExists, setCloudStateExists] = useState(false)
+  const hydratedRef = useRef(false)
+  const syncEnabledRef = useRef(false)
+  const lastSyncedFingerprintRef = useRef('')
+  const lastRemoteUpdatedAtRef = useRef('')
+  const saveSequenceRef = useRef(0)
   useEffect(() => {
     let cancelled = false
+    const saveState = async (state: SharedState) => {
+      if (!supabase) return
+      const updatedAt = new Date().toISOString()
+      const { error } = await supabase.from('fortress_state').upsert({ id: SHARED_STATE_ID, members: state.members, queues: state.queues, last_sweep: state.lastSweep, contest: state.contest, updated_at: updatedAt })
+      if (error) throw new Error(error.message)
+      lastRemoteUpdatedAtRef.current = updatedAt
+      lastSyncedFingerprintRef.current = sharedStateFingerprint(state)
+    }
     const loadSharedState = async () => {
-      if (!supabase) { setCloudReady(true); setNotice('当前未配置云端连接，数据只保存在本机。'); return }
-      const { data, error } = await supabase.from('fortress_state').select('members,queues,last_sweep,contest').eq('id', SHARED_STATE_ID).maybeSingle()
-      if (cancelled) return
-      if (error) { setCloudReady(true); setNotice(`云端读取失败，暂时使用本机数据：${error.message}`); return }
-      if (data) {
-        const row = data as SharedStateRow
-        setCloudStateExists(true)
-        const remoteMembers = Array.isArray(row.members) ? row.members.map((member) => normalizeMember(member)) : []
-        const shouldMigrateLocalRoster = members.length > remoteMembers.length
-        const hydratedMembers = shouldMigrateLocalRoster
-          ? [...members, ...remoteMembers.filter((remote) => !members.some((local) => local.id === remote.id || local.name.trim() === remote.name.trim()))]
-          : remoteMembers
-        const hydratedQueues = row.queues ? { ...emptyQueues(), ...row.queues } : emptyQueues()
-        if (!hydratedMembers.length && !members.length) {
-          const sampleMembers = makeSampleMembers()
-          setMembers(sampleMembers)
-          setQueues(hydratedQueues)
-          setLastSweep(row.last_sweep || '')
-          setContest(Boolean(row.contest))
-          await supabase.from('fortress_state').upsert({ id: SHARED_STATE_ID, members: sampleMembers, queues: hydratedQueues, last_sweep: row.last_sweep || '', contest: Boolean(row.contest), updated_at: new Date().toISOString() })
-          setCloudStateExists(true)
-          setNotice('没有找到成员数据，已自动导入以前的 30 人成员名单，并同步到共享数据。')
+      if (!supabase) { hydratedRef.current = true; setCloudReady(true); setNotice('当前未配置云端连接，数据只保存在本机。'); return }
+      setNotice('正在读取共享数据…')
+      try {
+        const { data, error } = await supabase.from('fortress_state').select('members,queues,last_sweep,contest,updated_at').eq('id', SHARED_STATE_ID).maybeSingle()
+        if (cancelled) return
+        if (error) throw new Error(error.message)
+
+        let nextMembers: Member[]
+        let nextQueues: Record<AccessoryName, QueueEntry[]>
+        let nextLastSweep: string
+        let nextContest: boolean
+        let noticeText: string
+        if (data) {
+          const row = data as SharedStateRow
+          const remoteMembers = Array.isArray(row.members) ? row.members.map((member) => normalizeMember(member)) : []
+          const shouldMigrateLocalRoster = members.length > remoteMembers.length
+          const shouldSeedSample = !remoteMembers.length && !members.length
+          nextMembers = shouldMigrateLocalRoster
+            ? [...members, ...remoteMembers.filter((remote) => !members.some((local) => local.id === remote.id || local.name.trim() === remote.name.trim()))]
+            : shouldSeedSample ? makeSampleMembers() : remoteMembers
+          nextQueues = row.queues ? { ...emptyQueues(), ...row.queues } : emptyQueues()
+          nextLastSweep = row.last_sweep || ''
+          nextContest = Boolean(row.contest)
+          noticeText = shouldMigrateLocalRoster ? '已将本机成员名单合并到共享数据。' : shouldSeedSample ? '没有找到成员数据，已自动导入以前的 30 人成员名单。' : '已连接共享数据，其他设备刷新后可看到最新内容。'
+          lastRemoteUpdatedAtRef.current = row.updated_at || ''
+          setMembers(nextMembers)
+          setQueues(nextQueues)
+          setLastSweep(nextLastSweep)
+          setContest(nextContest)
+          lastSyncedFingerprintRef.current = sharedStateFingerprint({ members: nextMembers, queues: nextQueues, lastSweep: nextLastSweep, contest: nextContest })
+          if (shouldMigrateLocalRoster || shouldSeedSample) await saveState({ members: nextMembers, queues: nextQueues, lastSweep: nextLastSweep, contest: nextContest })
         } else {
-          setMembers(hydratedMembers)
-          if (shouldMigrateLocalRoster) {
-            await supabase.from('fortress_state').upsert({ id: SHARED_STATE_ID, members: hydratedMembers, queues, last_sweep: lastSweep, contest, updated_at: new Date().toISOString() })
-            setNotice('已将本机成员名单合并到共享数据，其他设备刷新即可看到。')
-          }
-          setQueues(hydratedQueues)
-          setLastSweep(row.last_sweep || '')
-          setContest(Boolean(row.contest))
-          setNotice(shouldMigrateLocalRoster ? '已将本机成员名单合并到共享数据，其他设备刷新即可看到。' : '已连接共享数据，其他设备刷新后可看到最新内容。')
+          nextMembers = members.length ? members : makeSampleMembers()
+          nextQueues = queues
+          nextLastSweep = lastSweep
+          nextContest = contest
+          noticeText = members.length ? '已建立共享数据空间。' : '没有找到成员数据，已自动导入以前的 30 人成员名单。'
+          setMembers(nextMembers)
+          setQueues(nextQueues)
+          setLastSweep(nextLastSweep)
+          setContest(nextContest)
+          await saveState({ members: nextMembers, queues: nextQueues, lastSweep: nextLastSweep, contest: nextContest })
         }
-      } else {
-        if (members.length || Object.values(queues).some((entries) => entries.length)) {
-          await supabase.from('fortress_state').upsert({ id: SHARED_STATE_ID, members, queues, last_sweep: lastSweep, contest, updated_at: new Date().toISOString() })
-          setCloudStateExists(true)
-          setNotice('已建立共享数据空间。')
-        } else {
-          const sampleMembers = makeSampleMembers()
-          setMembers(sampleMembers)
-          setCloudStateExists(true)
-          await supabase.from('fortress_state').upsert({ id: SHARED_STATE_ID, members: sampleMembers, queues, last_sweep: lastSweep, contest, updated_at: new Date().toISOString() })
-          setNotice('没有找到成员数据，已自动导入以前的 30 人成员名单，并同步到共享数据。')
-        }
+        syncEnabledRef.current = true
+        if (!cancelled) setNotice(noticeText)
+      } catch (error) {
+        syncEnabledRef.current = false
+        if (!cancelled) setNotice(`云端同步失败，暂时使用本机数据：${error instanceof Error ? error.message : '网络错误'}`)
+      } finally {
+        if (!cancelled) { hydratedRef.current = true; setCloudReady(true) }
       }
-      setCloudReady(true)
     }
     void loadSharedState()
     return () => { cancelled = true }
   }, [])
   useEffect(() => {
-    if (!cloudReady || !supabase || (!cloudStateExists && !members.length && !Object.values(queues).some((entries) => entries.length))) return
-    setCloudStateExists(true)
+    if (!cloudReady || !supabase || !hydratedRef.current || !syncEnabledRef.current) return
+    const state = { members, queues, lastSweep, contest }
+    const fingerprint = sharedStateFingerprint(state)
+    if (fingerprint === lastSyncedFingerprintRef.current) return
     const timer = window.setTimeout(() => {
-      // @ts-expect-error Supabase client is intentionally untyped until the shared table is generated.
-      void supabase.from('fortress_state').upsert({ id: SHARED_STATE_ID, members, queues, last_sweep: lastSweep, contest, updated_at: new Date().toISOString() }).then(({ error }) => { if (error) setNotice(`云端同步失败：${error.message}`) })
+      const sequence = ++saveSequenceRef.current
+      const save = async () => {
+        try {
+          const updatedAt = new Date().toISOString()
+          const { error } = await supabase.from('fortress_state').upsert({ id: SHARED_STATE_ID, members, queues, last_sweep: lastSweep, contest, updated_at: updatedAt })
+          if (error) throw new Error(error.message)
+          if (sequence === saveSequenceRef.current) {
+            lastRemoteUpdatedAtRef.current = updatedAt
+            lastSyncedFingerprintRef.current = fingerprint
+            setNotice('已同步到云端，其他设备刷新后可看到最新内容。')
+          }
+        } catch (error) {
+          if (sequence === saveSequenceRef.current) setNotice(`云端同步失败：${error instanceof Error ? error.message : '网络错误'}`)
+        }
+      }
+      void save()
     }, 500)
     return () => window.clearTimeout(timer)
-  }, [members, queues, lastSweep, contest, cloudReady, cloudStateExists])
+  }, [members, queues, lastSweep, contest, cloudReady])
+  useEffect(() => {
+    if (!cloudReady || !supabase || !syncEnabledRef.current) return
+    const channel = supabase.channel(`fortress-state-${SHARED_STATE_ID}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'fortress_state', filter: `id=eq.${SHARED_STATE_ID}` }, (payload: { new?: SharedStateRow }) => {
+        const row = payload.new
+        if (!row || !Array.isArray(row.members)) return
+        const nextMembers = row.members.map((member) => normalizeMember(member))
+        const nextQueues = row.queues ? { ...emptyQueues(), ...row.queues } : emptyQueues()
+        const nextLastSweep = row.last_sweep || ''
+        const nextContest = Boolean(row.contest)
+        const nextState = { members: nextMembers, queues: nextQueues, lastSweep: nextLastSweep, contest: nextContest }
+        const fingerprint = sharedStateFingerprint(nextState)
+        if (fingerprint === lastSyncedFingerprintRef.current) return
+        lastRemoteUpdatedAtRef.current = row.updated_at || ''
+        lastSyncedFingerprintRef.current = fingerprint
+        setMembers(nextMembers)
+        setQueues(nextQueues)
+        setLastSweep(nextLastSweep)
+        setContest(nextContest)
+        setNotice('已接收其他设备的最新数据。')
+      })
+      .subscribe()
+    return () => { void supabase.removeChannel(channel) }
+  }, [cloudReady])
   const ranked = useMemo(() => rankMembers(members), [members]); const powerRanked = useMemo(() => powerRankMembers(members), [members]); const schedule = useMemo(() => buildAutoSchedule(ranked), [ranked]); const scoreMax = contest ? 57 : 37
   const weeklyPowerTotal = useMemo(() => members.reduce((total, member) => total + (member.weeklyPower || 0), 0), [members])
   const powerTotal = useMemo(() => members.reduce((total, member) => total + (member.power || 0), 0), [members])

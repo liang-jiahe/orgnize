@@ -277,6 +277,7 @@ export default function App() {
   const lastSyncedFingerprintRef = useRef('')
   const lastRemoteUpdatedAtRef = useRef('')
   const saveSequenceRef = useRef(0)
+  const realtimeStatusRef = useRef('')
   useEffect(() => {
     let cancelled = false
     const saveState = async (state: SharedState) => {
@@ -389,9 +390,52 @@ export default function App() {
         setContest(nextContest)
         setNotice('已接收其他设备的最新数据。')
       })
-      .subscribe()
+      .subscribe((status: string) => {
+        if (status === 'SUBSCRIBED') {
+          realtimeStatusRef.current = status
+          return
+        }
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          if (realtimeStatusRef.current === status) return
+          realtimeStatusRef.current = status
+          setNotice('实时同步暂时断开，系统会自动重试并定时读取云端数据。')
+        }
+      })
     return () => { void supabase.removeChannel(channel) }
   }, [cloudReady])
+  useEffect(() => {
+    if (!cloudReady || !supabase || !syncEnabledRef.current) return
+    let cancelled = false
+    const pollRemoteState = async () => {
+      try {
+        const { data, error } = await supabase.from('fortress_state').select('members,queues,last_sweep,contest,updated_at').eq('id', SHARED_STATE_ID).maybeSingle()
+        if (cancelled || error || !data) return
+        const row = data as SharedStateRow
+        const remoteUpdatedAt = Date.parse(row.updated_at || '')
+        const currentUpdatedAt = Date.parse(lastRemoteUpdatedAtRef.current || '')
+        const localState = { members, queues, lastSweep, contest }
+        if (!Number.isFinite(remoteUpdatedAt) || remoteUpdatedAt <= currentUpdatedAt || sharedStateFingerprint(localState) !== lastSyncedFingerprintRef.current) return
+        const nextMembers = Array.isArray(row.members) ? row.members.map((member) => normalizeMember(member)) : []
+        const nextQueues = row.queues ? { ...emptyQueues(), ...row.queues } : emptyQueues()
+        const nextState = { members: nextMembers, queues: nextQueues, lastSweep: row.last_sweep || '', contest: Boolean(row.contest) }
+        const fingerprint = sharedStateFingerprint(nextState)
+        if (fingerprint === lastSyncedFingerprintRef.current) return
+        lastRemoteUpdatedAtRef.current = row.updated_at || ''
+        lastSyncedFingerprintRef.current = fingerprint
+        setMembers(nextMembers)
+        setQueues(nextQueues)
+        setLastSweep(nextState.lastSweep)
+        setContest(nextState.contest)
+        setNotice('已从云端读取其他设备的最新数据。')
+      } catch {
+        // Realtime remains the primary path; a later poll retries automatically.
+      }
+    }
+    const interval = window.setInterval(() => { void pollRemoteState() }, 10000)
+    const onFocus = () => { void pollRemoteState() }
+    window.addEventListener('focus', onFocus)
+    return () => { cancelled = true; window.clearInterval(interval); window.removeEventListener('focus', onFocus) }
+  }, [cloudReady, members, queues, lastSweep, contest])
   const ranked = useMemo(() => rankMembers(members), [members]); const powerRanked = useMemo(() => powerRankMembers(members), [members]); const schedule = useMemo(() => buildAutoSchedule(ranked), [ranked]); const scoreMax = contest ? 57 : 37
   const weeklyPowerTotal = useMemo(() => members.reduce((total, member) => total + (member.weeklyPower || 0), 0), [members])
   const powerTotal = useMemo(() => members.reduce((total, member) => total + (member.power || 0), 0), [members])
@@ -467,7 +511,7 @@ export default function App() {
   const goTo = (section: string) => { setActiveSection(section); document.getElementById(section)?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }
   return <div className="app-shell">
     <span className="cat-sticker cat-art sticker-cat" style={{ backgroundImage: `url(${catStickerSheet})` }} aria-hidden="true"></span><span className="cat-sticker cat-art sticker-paw" style={{ backgroundImage: `url(${catStickerSheet})` }} aria-hidden="true"></span><span className="cat-sticker cat-art sticker-heart" style={{ backgroundImage: `url(${catStickerSheet})` }} aria-hidden="true"></span>
-    <aside className="sidebar"><div className="brand-mark brand-cat" style={{ backgroundImage: `url(${catStickerSheet})` }}></div><h1>繁星要塞</h1><nav><button className={activeSection === 'matrix' ? 'active' : ''} onClick={() => goTo('matrix')}>▦ 要塞分包</button><button className={activeSection === 'members' ? 'active' : ''} onClick={() => goTo('members')}>♙ 成员管理与考核</button><button className={activeSection === 'accessories' ? 'active' : ''} onClick={() => goTo('accessories')}>◇ 饰品排队</button><button className={activeSection === 'instructions' ? 'active' : ''} onClick={() => goTo('instructions')}>▤ 使用说明</button></nav><div className="sidebar-note">数据只保存在当前浏览器<br />导入即用，导出即走</div></aside>
+    <aside className="sidebar"><div className="brand-mark brand-cat" style={{ backgroundImage: `url(${catStickerSheet})` }}></div><h1>繁星要塞</h1><nav><button className={activeSection === 'matrix' ? 'active' : ''} onClick={() => goTo('matrix')}>▦ 要塞分包</button><button className={activeSection === 'members' ? 'active' : ''} onClick={() => goTo('members')}>♙ 成员管理与考核</button><button className={activeSection === 'accessories' ? 'active' : ''} onClick={() => goTo('accessories')}>◇ 饰品排队</button><button className={activeSection === 'instructions' ? 'active' : ''} onClick={() => goTo('instructions')}>▤ 使用说明</button></nav><div className="sidebar-note">{cloudReady && supabase ? <>数据已保存到共享云端<br />其他设备可同步</> : <>当前仅保存在本机<br />配置云端后可同步</>}</div></aside>
     <main className="content">
       <header className="topbar"><div><div className="eyebrow">FORTRESS DISTRIBUTION</div><h2>本周要塞包分配</h2></div><div className="toolbar"><button className="btn secondary" onClick={() => fileRef.current?.click()}>⇧ 导入 XLSX</button><input ref={fileRef} type="file" accept=".xlsx,.xls" hidden onChange={handleImport} /><button className="btn primary" onClick={() => exportWorkbook(members, schedule, ranked)}>⇩ 导出单表 XLSX</button></div></header>
       <section className="notice">{notice}<span className="notice-right"><label className="toggle"><input type="checkbox" checked={contest} onChange={(e) => setContest(e.target.checked)} /><span></span> 争霸周（最高 {scoreMax} 分）</label></span></section>

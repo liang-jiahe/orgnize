@@ -90,9 +90,16 @@ function makeSampleMembers(): Member[] {
   return SAMPLE_NAMES.map((name, index) => ({ id: `m-${index + 1}`, name, power: SAMPLE_POWER[index], previousPower: SAMPLE_POWER[index], weeklyPower: 0, score: SAMPLE_SCORE_BY_NAME[name] ?? null, remark: '', order: index }))
 }
 
+function roundPower(value: number): number {
+  const rounded = Math.round((value + Number.EPSILON) * 100) / 100
+  return Object.is(rounded, -0) ? 0 : rounded
+}
+
 function normalizeMember(member: Member): Member {
-  const weeklyPower = Number(member.weeklyPower) || 0
-  return { ...member, previousPower: member.previousPower ?? Math.max((Number(member.power) || 0) - weeklyPower, 0), weeklyPower }
+  const power = roundPower(Number(member.power) || 0)
+  const weeklyPower = roundPower(Number(member.weeklyPower) || 0)
+  const previousPower = member.previousPower == null ? Math.max(power - weeklyPower, 0) : roundPower(Number(member.previousPower) || 0)
+  return { ...member, power, previousPower, weeklyPower }
 }
 
 function cloneMembers(source: Member[]) {
@@ -437,9 +444,9 @@ export default function App() {
     return () => { cancelled = true; window.clearInterval(interval); window.removeEventListener('focus', onFocus) }
   }, [cloudReady, members, queues, lastSweep, contest])
   const ranked = useMemo(() => rankMembers(members), [members]); const powerRanked = useMemo(() => powerRankMembers(members), [members]); const schedule = useMemo(() => buildAutoSchedule(ranked), [ranked]); const scoreMax = contest ? 57 : 37
-  const weeklyPowerTotal = useMemo(() => members.reduce((total, member) => total + (member.weeklyPower || 0), 0), [members])
-  const powerTotal = useMemo(() => members.reduce((total, member) => total + (member.power || 0), 0), [members])
-  const previousPowerTotal = useMemo(() => members.reduce((total, member) => total + Math.max((member.power || 0) - (member.weeklyPower || 0), 0), 0), [members])
+  const weeklyPowerTotal = useMemo(() => roundPower(members.reduce((total, member) => total + (member.weeklyPower || 0), 0)), [members])
+  const powerTotal = useMemo(() => roundPower(members.reduce((total, member) => total + (member.power || 0), 0)), [members])
+  const previousPowerTotal = useMemo(() => roundPower(members.reduce((total, member) => total + Math.max((member.power || 0) - (member.weeklyPower || 0), 0), 0)), [members])
   const counts = useMemo(() => { const result = new Map<string, { fire: number; middle: number }>(); Object.entries(schedule).forEach(([key, id]) => { if (!id) return; const type = key.split(':')[1] as PackageType; const current = result.get(id) ?? { fire: 0, middle: 0 }; if (type === 'fire') current.fire += 1; else current.middle += 1; result.set(id, current) }); return result }, [schedule])
   useEffect(() => { localStorage.setItem('fortress-members', JSON.stringify(members)) }, [members])
   useEffect(() => { localStorage.setItem('fortress-accessory-queues', JSON.stringify(queues)) }, [queues])
@@ -481,7 +488,7 @@ export default function App() {
   const addMember = () => { const index = members.length + 1; commitMembers((current) => [...current, { id: `m-${Date.now()}`, name: `新成员${index}`, power: 0, previousPower: 0, weeklyPower: 0, score: null, remark: '', order: current.length }], '已新增成员，请填写姓名、战力和考核分。') }
   const removeMember = (id: string) => { commitMembers((current) => current.filter((member) => member.id !== id), '成员已删除，排名和矩阵已更新。') }
   const calculateWeeklyPower = () => { commitMembers((current) => current.map((member) => ({ ...member, previousPower: member.power, weeklyPower: 0 })), '已更新战力：本周战力已转为上周战力，提升已归零。') }
-  const calculateGrowth = () => { commitMembers((current) => current.map((member) => ({ ...member, weeklyPower: Math.max((member.power || 0) - (member.previousPower || 0), 0) })), '已按“本周战力 - 上周战力”计算提升。') }
+  const calculateGrowth = () => { commitMembers((current) => current.map((member) => ({ ...member, weeklyPower: roundPower(Math.max((member.power || 0) - (member.previousPower || 0), 0)) })), '已按“本周战力 - 上周战力”计算提升。') }
   const resetScores = () => { commitMembers((current) => current.map((member) => ({ ...member, score: 36 })), '考核分数已全部重置为 36。') }
   const visiblePowerMembers = powerRanked
   const visibleScoreMembers = ranked
@@ -567,9 +574,9 @@ export default function App() {
                       <tr key={member.id}>
                         <td><span className="rank-pill">{powerRank || '—'}</span></td>
                         <td><input value={member.name} onChange={(e) => updateMember(member.id, { name: e.target.value })} /></td>
-                        <td><input type="number" value={previousPower || ''} onChange={(e) => updateMember(member.id, { previousPower: e.target.value === '' ? 0 : Number(e.target.value) })} /></td>
-                        <td><input type="number" value={currentPower || ''} onChange={(e) => updateMember(member.id, { power: e.target.value === '' ? 0 : Number(e.target.value) })} /></td>
-                        <td><input type="number" value={growth || ''} onChange={(e) => updateMember(member.id, { weeklyPower: e.target.value === '' ? 0 : Number(e.target.value) })} /></td>
+                        <td><input type="number" step="0.01" value={previousPower || ''} onChange={(e) => updateMember(member.id, { previousPower: e.target.value === '' ? 0 : Number(e.target.value) })} /></td>
+                        <td><input type="number" step="0.01" value={currentPower || ''} onChange={(e) => updateMember(member.id, { power: e.target.value === '' ? 0 : Number(e.target.value) })} /></td>
+                        <td><input type="number" step="0.01" value={growth || ''} onChange={(e) => updateMember(member.id, { weeklyPower: e.target.value === '' ? 0 : Number(e.target.value) })} /></td>
                         <td><button className="icon-btn" title="删除成员" onClick={() => removeMember(member.id)}>×</button></td>
                       </tr>
                     )

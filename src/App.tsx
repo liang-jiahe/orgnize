@@ -80,14 +80,32 @@ function sundayDateKey() {
   return `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`
 }
 
-const SAMPLE_NAMES = ['太初星', '关注塔菲喵', '花云青', '无双', '御茨星', '念君夏', '夏弥', '谦灵星', '小星星', '沈七涵', '晓行星', '心芯星', '猫猫星', '绝地', '鸿鹄', '云岫', '亿丈龙我', '椛七', '超级萝卜大王', '拳王', '浅帐星', '别急稳一手', '小苏在这里', '时愿星', '伦敦街尾吻别', '33', '季时雨花知否', '我一直都在', '弦', '白慕']
-const SAMPLE_POWER = [3852, 3751, 3736, 3258, 3220, 3077, 2867, 2881, 2802, 2746, 2732, 2684, 2633, 2567, 2547, 2542, 2469, 2460, 2408, 2405, 2323, 2314, 2306, 2294, 2218, 2206, 2193, 2189, 2110, 2096]
+const LATEST_POWER_SNAPSHOT = [
+  ['关注塔菲喵', 4010.3, 4082], ['太初星', 3975.7, 4000], ['花云青', 3870.4, 3874], ['无双', 3370.3, 3384],
+  ['御茨星', 3351.1, 3355], ['念君夏', 3176.7, 3191], ['谦灵星', 3064.7, 3184], ['夏弥', 3004.4, 3017],
+  ['小星星', 2898.1, 2911], ['沈七涵', 2897.7, 2908], ['晓行星', 2856.7, 2881], ['心芯星', 2829.1, 2846],
+  ['椛七', 2713.9, 2785], ['猫猫星', 2744.7, 2769], ['绝地', 2670.1, 2689], ['鸿鹄', 2658.9, 2682],
+  ['云岫', 2650.7, 2659], ['亿丈龙我', 2584.6, 2603], ['浅帐星', 2471, 2493], ['超级萝卜大王', 2470.9, 2468],
+  ['别急稳一手', 2414.3, 2430], ['小苏在这里', 2420.4, 2428], ['时愿星', 2389.5, 2403], ['季时雨花知否', 2319.1, 2334],
+  ['白慕', 2096, 2330], ['33', 2295.3, 2307], ['我一直都在', 2295, 2307], ['伦敦街尾吻别', 2294.7, 2305], ['弦', 2174, 2184],
+] as const
+const LEGACY_POWER_SNAPSHOT = [3852, 3751, 3736, 3258, 3220, 3077, 2867, 2881, 2802, 2746, 2732, 2684, 2633, 2567, 2547, 2542, 2469, 2460, 2408, 2405, 2323, 2314, 2306, 2294, 2218, 2206, 2193, 2189, 2110, 2096] as const
+const LEGACY_POWER_BY_NAME: Record<string, number> = Object.fromEntries([
+  ['太初星', LEGACY_POWER_SNAPSHOT[0]], ['关注塔菲喵', LEGACY_POWER_SNAPSHOT[1]], ['花云青', LEGACY_POWER_SNAPSHOT[2]], ['无双', LEGACY_POWER_SNAPSHOT[3]],
+  ['御茨星', LEGACY_POWER_SNAPSHOT[4]], ['念君夏', LEGACY_POWER_SNAPSHOT[5]], ['夏弥', LEGACY_POWER_SNAPSHOT[6]], ['谦灵星', LEGACY_POWER_SNAPSHOT[7]],
+  ['小星星', LEGACY_POWER_SNAPSHOT[8]], ['沈七涵', LEGACY_POWER_SNAPSHOT[9]], ['晓行星', LEGACY_POWER_SNAPSHOT[10]], ['心芯星', LEGACY_POWER_SNAPSHOT[11]],
+  ['猫猫星', LEGACY_POWER_SNAPSHOT[12]], ['绝地', LEGACY_POWER_SNAPSHOT[13]], ['鸿鹄', LEGACY_POWER_SNAPSHOT[14]], ['云岫', LEGACY_POWER_SNAPSHOT[15]],
+  ['亿丈龙我', LEGACY_POWER_SNAPSHOT[16]], ['椛七', LEGACY_POWER_SNAPSHOT[17]], ['超级萝卜大王', LEGACY_POWER_SNAPSHOT[18]], ['拳王', LEGACY_POWER_SNAPSHOT[19]],
+  ['浅帐星', LEGACY_POWER_SNAPSHOT[20]], ['别急稳一手', LEGACY_POWER_SNAPSHOT[21]], ['小苏在这里', LEGACY_POWER_SNAPSHOT[22]], ['时愿星', LEGACY_POWER_SNAPSHOT[23]],
+  ['伦敦街尾吻别', LEGACY_POWER_SNAPSHOT[24]], ['33', LEGACY_POWER_SNAPSHOT[25]], ['季时雨花知否', LEGACY_POWER_SNAPSHOT[26]], ['我一直都在', LEGACY_POWER_SNAPSHOT[27]],
+  ['弦', LEGACY_POWER_SNAPSHOT[28]], ['白慕', LEGACY_POWER_SNAPSHOT[29]],
+])
 const SAMPLE_SCORE_BY_NAME: Record<string, number> = {
   '太初星': 36, '关注塔菲喵': 36, '花云青': 36, '无双': 36, '御茨星': 35, '念君夏': 36, '夏弥': 36, '谦灵星': 36, '小星星': 35, '沈七涵': 16, '晓行星': 36, '心芯星': 36, '猫猫星': 36, '绝地': 36, '鸿鹄': 26, '云岫': 26, '亿丈龙我': 36, '椛七': 36, '超级萝卜大王': 5, '拳王': 36, '浅帐星': 36, '别急稳一手': 36, '小苏在这里': 15, '时愿星': 17, '伦敦街尾吻别': 36, '33': 36, '季时雨花知否': 36, '我一直都在': 15, '弦': 26, '白慕': 36,
 }
 
 function makeSampleMembers(): Member[] {
-  return SAMPLE_NAMES.map((name, index) => ({ id: `m-${index + 1}`, name, power: SAMPLE_POWER[index], previousPower: SAMPLE_POWER[index], weeklyPower: 0, score: SAMPLE_SCORE_BY_NAME[name] ?? null, remark: '', order: index }))
+  return LATEST_POWER_SNAPSHOT.map(([name, previousPower, power], index) => ({ id: `m-${index + 1}`, name, power, previousPower, weeklyPower: roundPower(power - previousPower), score: SAMPLE_SCORE_BY_NAME[name] ?? null, remark: '', order: index }))
 }
 
 function roundPower(value: number): number {
@@ -100,6 +118,32 @@ function normalizeMember(member: Member): Member {
   const weeklyPower = roundPower(Number(member.weeklyPower) || 0)
   const previousPower = member.previousPower == null ? Math.max(power - weeklyPower, 0) : roundPower(Number(member.previousPower) || 0)
   return { ...member, power, previousPower, weeklyPower }
+}
+
+function migrateLatestPowerSnapshot(source: Member[]): { members: Member[]; changed: boolean } {
+  const byName = new Map(source.map((member) => [member.name.trim(), member]))
+  const hasLegacySnapshot = source.some((member) => {
+    const snapshot = LATEST_POWER_SNAPSHOT.find(([name]) => name === member.name.trim())
+    const legacyPower = LEGACY_POWER_BY_NAME[member.name.trim()]
+    return member.name.trim() === '拳王' || (snapshot != null && legacyPower != null && Number(member.power) === legacyPower && (member.previousPower == null || Number(member.previousPower) === legacyPower))
+  })
+  if (!hasLegacySnapshot) return { members: source, changed: false }
+  const migrated = LATEST_POWER_SNAPSHOT.map(([name, previousPower, power], index) => {
+    const existing = byName.get(name)
+    return normalizeMember({
+      id: existing?.id ?? `m-latest-${index + 1}`,
+      name,
+      power,
+      previousPower,
+      weeklyPower: roundPower(power - previousPower),
+      score: existing?.score ?? SAMPLE_SCORE_BY_NAME[name] ?? null,
+      remark: existing?.remark ?? '',
+      order: index,
+    })
+  })
+  const snapshotNames = new Set<string>(LATEST_POWER_SNAPSHOT.map(([name]) => name))
+  const customMembers = source.filter((member) => !snapshotNames.has(member.name.trim()) && member.name.trim() !== '拳王')
+  return { members: [...migrated, ...customMembers.map((member, index) => ({ ...member, order: migrated.length + index }))], changed: true }
 }
 
 function cloneMembers(source: Member[]) {
@@ -269,7 +313,7 @@ function QueueNameInput({ accessory, value, members, queuedEntries, open, onOpen
 }
 
 export default function App() {
-  const [members, setMembers] = useState<Member[]>(() => { try { const saved = localStorage.getItem('fortress-members'); return saved ? JSON.parse(saved).map((member: Member) => normalizeMember(member)) : [] } catch { return [] } })
+  const [members, setMembers] = useState<Member[]>(() => { try { const saved = localStorage.getItem('fortress-members'); if (!saved) return []; const migrated = migrateLatestPowerSnapshot(JSON.parse(saved).map((member: Member) => normalizeMember(member))); return migrated.members } catch { return [] } })
   const [contest, setContest] = useState(false); const [notice, setNotice] = useState('已加载示例数据，可直接编辑或导入本周表格。'); const [activeSection, setActiveSection] = useState('matrix'); const fileRef = useRef<HTMLInputElement>(null)
   const undoStack = useRef<Member[][]>([])
   const redoStack = useRef<Member[][]>([])
@@ -296,7 +340,13 @@ export default function App() {
       lastSyncedFingerprintRef.current = sharedStateFingerprint(state)
     }
     const loadSharedState = async () => {
-      if (!supabase) { hydratedRef.current = true; setCloudReady(true); setNotice('当前未配置云端连接，数据只保存在本机。'); return }
+      if (!supabase) {
+        if (!members.length) setMembers(makeSampleMembers())
+        hydratedRef.current = true
+        setCloudReady(true)
+        setNotice('当前未配置云端连接，已加载最新成员战力；数据只保存在本机。')
+        return
+      }
       setNotice('正在读取共享数据…')
       try {
         const { data, error } = await supabase.from('fortress_state').select('members,queues,last_sweep,contest,updated_at').eq('id', SHARED_STATE_ID).maybeSingle()
@@ -311,11 +361,13 @@ export default function App() {
         if (data) {
           const row = data as SharedStateRow
           const remoteMembers = Array.isArray(row.members) ? row.members.map((member) => normalizeMember(member)) : []
-          const shouldMigrateLocalRoster = members.length > remoteMembers.length
-          const shouldSeedSample = !remoteMembers.length && !members.length
+          const migratedRemote = migrateLatestPowerSnapshot(remoteMembers)
+          const normalizedRemoteMembers = migratedRemote.members
+          const shouldMigrateLocalRoster = members.length > normalizedRemoteMembers.length
+          const shouldSeedSample = !normalizedRemoteMembers.length && !members.length
           nextMembers = shouldMigrateLocalRoster
-            ? [...members, ...remoteMembers.filter((remote) => !members.some((local) => local.id === remote.id || local.name.trim() === remote.name.trim()))]
-            : shouldSeedSample ? makeSampleMembers() : remoteMembers
+            ? [...members, ...normalizedRemoteMembers.filter((remote) => !members.some((local) => local.id === remote.id || local.name.trim() === remote.name.trim()))]
+            : shouldSeedSample ? makeSampleMembers() : normalizedRemoteMembers
           nextQueues = row.queues ? { ...emptyQueues(), ...row.queues } : emptyQueues()
           nextLastSweep = row.last_sweep || ''
           nextContest = Boolean(row.contest)
@@ -326,9 +378,10 @@ export default function App() {
           setLastSweep(nextLastSweep)
           setContest(nextContest)
           lastSyncedFingerprintRef.current = sharedStateFingerprint({ members: nextMembers, queues: nextQueues, lastSweep: nextLastSweep, contest: nextContest })
-          if (shouldMigrateLocalRoster || shouldSeedSample) await saveState({ members: nextMembers, queues: nextQueues, lastSweep: nextLastSweep, contest: nextContest })
+          if (shouldMigrateLocalRoster || shouldSeedSample || migratedRemote.changed) await saveState({ members: nextMembers, queues: nextQueues, lastSweep: nextLastSweep, contest: nextContest })
         } else {
-          nextMembers = members.length ? members : makeSampleMembers()
+          const migratedLocal = migrateLatestPowerSnapshot(members)
+          nextMembers = members.length ? migratedLocal.members : makeSampleMembers()
           nextQueues = queues
           nextLastSweep = lastSweep
           nextContest = contest

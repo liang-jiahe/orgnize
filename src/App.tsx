@@ -85,7 +85,7 @@ const LATEST_POWER_SNAPSHOT = [
   ['御茨星', 3351.1, 3355], ['念君夏', 3176.7, 3191], ['谦灵星', 3064.7, 3184], ['夏弥', 3004.4, 3017],
   ['小星星', 2898.1, 2911], ['沈七涵', 2897.7, 2908], ['晓行星', 2856.7, 2881], ['心芯星', 2829.1, 2846],
   ['椛七', 2713.9, 2785], ['猫猫星', 2744.7, 2769], ['绝地', 2670.1, 2689], ['鸿鹄', 2658.9, 2682],
-  ['云岫', 2650.7, 2659], ['亿丈龙我', 2584.6, 2603], ['浅帐星', 2471, 2493], ['超级萝卜大王', 2470.9, 2468],
+  ['云岫', 2650.7, 2659], ['亿丈龙我', 2584.6, 2603], ['浅枨星', 2471, 2493], ['超级萝卜大王', 2470.9, 2468],
   ['别急稳一手', 2414.3, 2430], ['小苏在这里', 2420.4, 2428], ['时愿星', 2389.5, 2403], ['季时雨花知否', 2319.1, 2334],
   ['白慕', 2096, 2330], ['33', 2295.3, 2307], ['我一直都在', 2295, 2307], ['伦敦街尾吻别', 2294.7, 2305], ['弦', 2174, 2184],
 ] as const
@@ -96,12 +96,12 @@ const LEGACY_POWER_BY_NAME: Record<string, number> = Object.fromEntries([
   ['小星星', LEGACY_POWER_SNAPSHOT[8]], ['沈七涵', LEGACY_POWER_SNAPSHOT[9]], ['晓行星', LEGACY_POWER_SNAPSHOT[10]], ['心芯星', LEGACY_POWER_SNAPSHOT[11]],
   ['猫猫星', LEGACY_POWER_SNAPSHOT[12]], ['绝地', LEGACY_POWER_SNAPSHOT[13]], ['鸿鹄', LEGACY_POWER_SNAPSHOT[14]], ['云岫', LEGACY_POWER_SNAPSHOT[15]],
   ['亿丈龙我', LEGACY_POWER_SNAPSHOT[16]], ['椛七', LEGACY_POWER_SNAPSHOT[17]], ['超级萝卜大王', LEGACY_POWER_SNAPSHOT[18]], ['拳王', LEGACY_POWER_SNAPSHOT[19]],
-  ['浅帐星', LEGACY_POWER_SNAPSHOT[20]], ['别急稳一手', LEGACY_POWER_SNAPSHOT[21]], ['小苏在这里', LEGACY_POWER_SNAPSHOT[22]], ['时愿星', LEGACY_POWER_SNAPSHOT[23]],
+  ['浅帐星', LEGACY_POWER_SNAPSHOT[20]], ['浅枨星', LEGACY_POWER_SNAPSHOT[20]], ['别急稳一手', LEGACY_POWER_SNAPSHOT[21]], ['小苏在这里', LEGACY_POWER_SNAPSHOT[22]], ['时愿星', LEGACY_POWER_SNAPSHOT[23]],
   ['伦敦街尾吻别', LEGACY_POWER_SNAPSHOT[24]], ['33', LEGACY_POWER_SNAPSHOT[25]], ['季时雨花知否', LEGACY_POWER_SNAPSHOT[26]], ['我一直都在', LEGACY_POWER_SNAPSHOT[27]],
   ['弦', LEGACY_POWER_SNAPSHOT[28]], ['白慕', LEGACY_POWER_SNAPSHOT[29]],
 ])
 const SAMPLE_SCORE_BY_NAME: Record<string, number> = {
-  '太初星': 36, '关注塔菲喵': 36, '花云青': 36, '无双': 36, '御茨星': 35, '念君夏': 36, '夏弥': 36, '谦灵星': 36, '小星星': 35, '沈七涵': 16, '晓行星': 36, '心芯星': 36, '猫猫星': 36, '绝地': 36, '鸿鹄': 26, '云岫': 26, '亿丈龙我': 36, '椛七': 36, '超级萝卜大王': 5, '拳王': 36, '浅帐星': 36, '别急稳一手': 36, '小苏在这里': 15, '时愿星': 17, '伦敦街尾吻别': 36, '33': 36, '季时雨花知否': 36, '我一直都在': 15, '弦': 26, '白慕': 36,
+  '太初星': 36, '关注塔菲喵': 36, '花云青': 36, '无双': 36, '御茨星': 35, '念君夏': 36, '夏弥': 36, '谦灵星': 36, '小星星': 35, '沈七涵': 16, '晓行星': 36, '心芯星': 36, '猫猫星': 36, '绝地': 36, '鸿鹄': 26, '云岫': 26, '亿丈龙我': 36, '椛七': 36, '超级萝卜大王': 5, '拳王': 36, '浅帐星': 36, '浅枨星': 36, '别急稳一手': 36, '小苏在这里': 15, '时愿星': 17, '伦敦街尾吻别': 36, '33': 36, '季时雨花知否': 36, '我一直都在': 15, '弦': 26, '白慕': 36,
 }
 
 function makeSampleMembers(): Member[] {
@@ -129,7 +129,7 @@ function migrateLatestPowerSnapshot(source: Member[]): { members: Member[]; chan
   })
   if (!hasLegacySnapshot) return { members: source, changed: false }
   const migrated = LATEST_POWER_SNAPSHOT.map(([name, previousPower, power], index) => {
-    const existing = byName.get(name)
+    const existing = byName.get(name) ?? (name === '浅枨星' ? byName.get('浅帐星') : undefined)
     return normalizeMember({
       id: existing?.id ?? `m-latest-${index + 1}`,
       name,
@@ -141,9 +141,7 @@ function migrateLatestPowerSnapshot(source: Member[]): { members: Member[]; chan
       order: index,
     })
   })
-  const snapshotNames = new Set<string>(LATEST_POWER_SNAPSHOT.map(([name]) => name))
-  const customMembers = source.filter((member) => !snapshotNames.has(member.name.trim()) && member.name.trim() !== '拳王')
-  return { members: [...migrated, ...customMembers.map((member, index) => ({ ...member, order: migrated.length + index }))], changed: true }
+  return { members: migrated, changed: true }
 }
 
 function cloneMembers(source: Member[]) {
